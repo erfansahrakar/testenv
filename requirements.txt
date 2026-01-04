@@ -1,0 +1,7 @@
+# وابستگی‌های ربات فروشگاه مانتو
+
+# Telegram Bot API
+python-telegram-bot==21.0
+
+# اگر می‌خوای از python-dotenv استفاده کنی
+# python-dotenv==1.0.0
