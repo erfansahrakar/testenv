@@ -1,5 +1,5 @@
 """
-فایل اصلی ربات فروشگاه مانتو
+فایل اصلی ربات فروشگاه مانتو - نسخه کامل شده
 
 این فایل مسئول راه‌اندازی و اجرای ربات است
 """
@@ -11,6 +11,7 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    ConversationHandler,
     filters,
     ContextTypes
 )
@@ -20,6 +21,11 @@ from database import Database
 from handlers.admin import AdminHandler
 from handlers.user import UserHandler
 from handlers.order import OrderHandler
+
+# Import های اضافی برای handler های جدید
+from states import *
+from keyboards import *
+
 from utils.logger import (
     get_logger,
     log_startup,
@@ -83,6 +89,10 @@ class ShopBot:
         
         # ساخت Application
         self.app = Application.builder().token(self.config.bot_token).build()
+        
+        # 🔥 ذخیره database در bot_data
+        self.app.bot_data['db'] = self.db
+        
         logger.info("✅ Application تلگرام ساخته شد")
         
         # ثبت handler ها
@@ -97,13 +107,13 @@ class ShopBot:
         """ثبت تمام handler های ربات"""
         logger.info("در حال ثبت handler ها...")
         
-        # Command handlers
+        # ============ Command handlers ============
         self.app.add_handler(CommandHandler("start", self.user_handler.start))
         self.app.add_handler(CommandHandler("help", self.user_handler.help_command))
         self.app.add_handler(CommandHandler("admin", self.admin_handler.admin_panel))
         logger.debug("✅ Command handlers ثبت شدند")
         
-        # Callback query handlers - Admin
+        # ============ Admin Callback handlers ============
         self.app.add_handler(CallbackQueryHandler(
             self.admin_handler.add_product_start,
             pattern="^admin_add_product$"
@@ -126,7 +136,7 @@ class ShopBot:
         ))
         logger.debug("✅ Admin callback handlers ثبت شدند")
         
-        # Callback query handlers - User
+        # ============ User Callback handlers ============
         self.app.add_handler(CallbackQueryHandler(
             self.user_handler.show_products,
             pattern="^user_products$"
@@ -145,7 +155,7 @@ class ShopBot:
         ))
         logger.debug("✅ User callback handlers ثبت شدند")
         
-        # Callback query handlers - Order
+        # ============ Order Callback handlers ============
         self.app.add_handler(CallbackQueryHandler(
             self.order_handler.add_to_cart,
             pattern="^add_to_cart_"
@@ -168,9 +178,38 @@ class ShopBot:
         ))
         logger.debug("✅ Order callback handlers ثبت شدند")
         
-        # Message handlers برای افزودن محصول (ادمین)
+        # ============ Admin Panel کلید‌های منوی اصلی ============
+        
+        # دکمه "📦 لیست محصولات"
+        async def handle_admin_products_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """هندلر برای دکمه لیست محصولات در منوی ادمین"""
+            if update.effective_user.id not in self.config.admin_ids:
+                return
+            
+            # ایجاد یک callback query جعلی
+            from telegram import CallbackQuery
+            fake_query = type('obj', (object,), {
+                'answer': lambda: None,
+                'edit_message_text': lambda *args, **kwargs: update.message.reply_text(*args, **kwargs),
+                'message': update.message,
+                'data': 'admin_list_products'
+            })()
+            
+            fake_update = type('obj', (object,), {
+                'callback_query': fake_query,
+                'effective_user': update.effective_user
+            })()
+            
+            await self.admin_handler.list_products(fake_update, context)
+        
         self.app.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
+            filters.TEXT & filters.Regex("^📦 لیست محصولات$"),
+            handle_admin_products_button
+        ))
+        
+        # ============ Message handlers برای ادمین (افزودن محصول) ============
+        self.app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND & ~filters.Regex("^(📦|📋|🎁|📢|📊|💾)"),
             self.admin_handler.handle_product_input
         ))
         self.app.add_handler(MessageHandler(
@@ -179,7 +218,22 @@ class ShopBot:
         ))
         logger.debug("✅ Message handlers ثبت شدند")
         
-        # Error handler
+        # ============ Fallback handler (catch-all) ============
+        async def unknown_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """هندلر برای پیام‌های ناشناخته"""
+            logger.debug(f"پیام ناشناخته از {update.effective_user.id}: {update.message.text if update.message else 'no text'}")
+            
+            # فقط برای کاربران عادی پاسخ بده (نه ادمین)
+            if update.effective_user.id not in self.config.admin_ids:
+                await update.message.reply_text(
+                    "❓ متوجه نشدم. لطفاً از دکمه‌های منو استفاده کنید.\n\n"
+                    "برای شروع: /start"
+                )
+        
+        self.app.add_handler(MessageHandler(filters.ALL, unknown_handler))
+        logger.debug("✅ Fallback handler ثبت شد")
+        
+        # ============ Error handler ============
         self.app.add_error_handler(self._error_handler)
         logger.debug("✅ Error handler ثبت شد")
     
