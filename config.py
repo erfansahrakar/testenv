@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass
 from typing import List
 from dotenv import load_dotenv
+load_dotenv()
 from utils.logger import get_logger, log_event
 
 # Logger این ماژول
